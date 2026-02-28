@@ -6,7 +6,11 @@ from botocore.config import Config
 class FileStore:
     def __init__(self, bucket_name=None):
         self.bucket_name = bucket_name or os.environ['FILE_BUCKET']
-        self._s3 = boto3.client('s3', config=Config(signature_version='s3v4'))
+        endpoint = os.environ.get('S3_ENDPOINT')
+        kwargs = {'config': Config(signature_version='s3v4')}
+        if endpoint:
+            kwargs['endpoint_url'] = endpoint
+        self._s3 = boto3.client('s3', **kwargs)
 
     def generate_presigned_put_url(self, s3_key, expiry_seconds=900):
         return self._s3.generate_presigned_url(

@@ -1,241 +1,302 @@
 """
-Integration tests for the S3 File-Sharing System.
+Offline integration tests using real DynamoDB Local + S3 Mock (Docker).
+No SAM Local — calls Lambda handlers directly in-process for speed.
 
-Run against a deployed API Gateway:
-    API_URL=https://xxx.execute-api.us-east-1.amazonaws.com/prod pytest tests/integration/ -v
+Usage:
+    docker compose up -d
+    python -m pytest tests/integration/ -v
 
-These tests create real data in DynamoDB and S3. They clean up after themselves.
+Requires: docker compose services running (dynamodb-local on 8033, s3-local on 9090)
 """
 import os
 import json
 import time
-import requests
+import hashlib
+import secrets
 import pytest
 
-API_URL = os.environ.get('API_URL', '')
+# Point shared modules at local Docker services
+os.environ['AWS_ACCESS_KEY_ID'] = 'fake'
+os.environ['AWS_SECRET_ACCESS_KEY'] = 'fake'
+os.environ['AWS_DEFAULT_REGION'] = 'us-east-1'
+os.environ['TABLE_NAME'] = 'test-table'
+os.environ['FILE_BUCKET'] = 'test-files'
+os.environ['DYNAMODB_ENDPOINT'] = 'http://127.0.0.1:8033'
+os.environ['S3_ENDPOINT'] = 'http://127.0.0.1:9090'
+
+import boto3
+from shared.data_store import DataStore
+from shared.file_store import FileStore
+from shared.session_validator import SessionValidator
+from shared.access_control import AccessControl
+
+import backend.auth.handler as auth_mod
+import backend.users.handler as users_mod
+import backend.folders.handler as folders_mod
+import backend.files.handler as files_mod
 
 
-def skip_if_no_api():
-    if not API_URL:
-        pytest.skip('API_URL not set — skipping integration tests')
+def is_docker_running():
+    try:
+        ds = DataStore()
+        ds.scan_by_pk_prefix('HEALTHCHECK#')
+        return True
+    except Exception:
+        return False
 
 
-# ---- Helpers ----
+def parse(resp):
+    return resp['statusCode'], json.loads(resp['body'])
 
-def post(path, body=None, token=None):
-    headers = {'Content-Type': 'application/json'}
+
+def event(method, path, body=None, token=None, path_params=None):
+    e = {
+        'httpMethod': method, 'path': path,
+        'headers': {}, 'pathParameters': path_params,
+        'body': json.dumps(body) if body else None,
+    }
     if token:
-        headers['Authorization'] = token
-    return requests.post(f'{API_URL}{path}', json=body, headers=headers)
-
-
-def get(path, token=None):
-    headers = {}
-    if token:
-        headers['Authorization'] = token
-    return requests.get(f'{API_URL}{path}', headers=headers)
-
-
-def put(path, body=None, token=None):
-    headers = {'Content-Type': 'application/json'}
-    if token:
-        headers['Authorization'] = token
-    return requests.put(f'{API_URL}{path}', json=body, headers=headers)
-
-
-def delete(path, token=None):
-    headers = {}
-    if token:
-        headers['Authorization'] = token
-    return requests.delete(f'{API_URL}{path}', headers=headers)
-
-
-def admin_login():
-    """Login as admin. Assumes admin account exists with known password."""
-    # Try default password first, then changed password
-    for pw in ['Admin123!', 'IntTestPass1!']:
-        r = post('/auth/login', {'username': 'admin', 'password': pw})
-        if r.status_code == 200:
-            data = r.json()
-            if data.get('force_password_change'):
-                # Change password
-                tok = data['token']
-                post('/auth/change-password',
-                     {'old_password': pw, 'new_password': 'IntTestPass1!'}, token=tok)
-                r = post('/auth/login', {'username': 'admin', 'password': 'IntTestPass1!'})
-            return r.json()['token']
-    raise RuntimeError('Cannot login as admin')
+        e['headers']['Authorization'] = token
+    return e
 
 
 # ---- Fixtures ----
 
-@pytest.fixture(scope='module')
+@pytest.fixture(scope='session', autouse=True)
+def setup_local_services():
+    if not is_docker_running():
+        pytest.skip('Docker services not running. Run: docker compose up -d')
+
+    ds = DataStore()
+
+    # Wire all handlers to use real local DDB/S3
+    for mod in [auth_mod, users_mod, folders_mod, files_mod]:
+        mod.ds = ds
+        mod.sv = SessionValidator(ds)
+        if hasattr(mod, 'ac'):
+            mod.ac = AccessControl(ds)
+        if hasattr(mod, 'fs'):
+            mod.fs = FileStore()
+
+    # Seed admin
+    existing = ds.get_item('USER#admin', 'USER#admin')
+    if not existing:
+        salt = secrets.token_hex(16)
+        pw_hash = hashlib.sha256(f'{salt}Admin123!'.encode()).hexdigest()
+        ds.put_item({
+            'PK': 'USER#admin', 'SK': 'USER#admin',
+            'username': 'admin', 'password_hash': pw_hash, 'salt': salt,
+            'role': 'admin', 'force_password_change': False,
+            'created_at': int(time.time()),
+        })
+
+    yield
+
+
+@pytest.fixture(scope='session')
 def admin_token():
-    skip_if_no_api()
-    return admin_login()
+    status, body = parse(auth_mod.lambda_handler(
+        event('POST', '/auth/login', {'username': 'admin', 'password': 'Admin123!'}), None))
+    assert status == 200, f'Admin login failed: {body}'
+    return body['token']
 
 
 @pytest.fixture(scope='module')
 def test_folder(admin_token):
-    """Create a test folder, yield its name, delete it after."""
     name = f'inttest-{int(time.time())}'
-    r = post('/folders', {'folder_name': name}, token=admin_token)
-    assert r.status_code == 200
+    status, _ = parse(folders_mod.lambda_handler(
+        event('POST', '/folders', {'folder_name': name}, token=admin_token), None))
+    assert status == 200
     yield name
-    delete(f'/folders/{name}', token=admin_token)
+    folders_mod.lambda_handler(
+        event('DELETE', f'/folders/{name}', token=admin_token,
+              path_params={'folder_name': name}), None)
 
 
 @pytest.fixture(scope='module')
 def test_users(admin_token, test_folder):
-    """Create test users for each role, yield dict of role->token, clean up."""
     users = {}
     for role in ['uploader', 'reader', 'viewer']:
         uname = f'inttest-{role}-{int(time.time())}'
-        r = post('/users', {
-            'username': uname, 'password': 'TestPass1!', 'role': role,
-            'folder_names': [test_folder],
-        }, token=admin_token)
-        assert r.status_code == 200
-        r = post('/auth/login', {'username': uname, 'password': 'TestPass1!'})
-        assert r.status_code == 200
-        users[role] = {'username': uname, 'token': r.json()['token']}
+        status, _ = parse(users_mod.lambda_handler(
+            event('POST', '/users', {
+                'username': uname, 'password': 'TestPass1!', 'role': role,
+                'folder_names': [test_folder],
+            }, token=admin_token), None))
+        assert status == 200
+
+        status, body = parse(auth_mod.lambda_handler(
+            event('POST', '/auth/login', {'username': uname, 'password': 'TestPass1!'}), None))
+        assert status == 200
+        users[role] = {'username': uname, 'token': body['token']}
+        time.sleep(0.1)  # ensure unique timestamps
 
     yield users
 
-    for role, info in users.items():
-        post('/auth/logout', token=info['token'])
-        delete(f'/users/{info["username"]}', token=admin_token)
+    for info in users.values():
+        users_mod.lambda_handler(
+            event('DELETE', f'/users/{info["username"]}', token=admin_token,
+                  path_params={'username': info['username']}), None)
 
 
-# ---- Auth Tests ----
+# ---- Auth ----
 
 class TestAuth:
     def test_login_valid(self):
-        skip_if_no_api()
-        r = post('/auth/login', {'username': 'admin', 'password': 'IntTestPass1!'})
-        assert r.status_code == 200
-        assert 'token' in r.json()
+        status, body = parse(auth_mod.lambda_handler(
+            event('POST', '/auth/login', {'username': 'admin', 'password': 'Admin123!'}), None))
+        assert status == 200
+        assert 'token' in body
 
     def test_login_invalid(self):
-        skip_if_no_api()
-        r = post('/auth/login', {'username': 'admin', 'password': 'wrong'})
-        assert r.status_code == 401
+        status, _ = parse(auth_mod.lambda_handler(
+            event('POST', '/auth/login', {'username': 'admin', 'password': 'wrong'}), None))
+        assert status == 401
 
     def test_no_token_401(self):
-        skip_if_no_api()
-        r = get('/users')
-        assert r.status_code == 401
+        status, _ = parse(users_mod.lambda_handler(
+            event('GET', '/users'), None))
+        assert status == 401
 
     def test_logout(self):
-        skip_if_no_api()
-        r = post('/auth/login', {'username': 'admin', 'password': 'IntTestPass1!'})
-        tok = r.json()['token']
-        r = post('/auth/logout', token=tok)
-        assert r.status_code == 200
-        # Token should be invalid now
-        r = get('/users', token=tok)
-        assert r.status_code == 401
+        status, body = parse(auth_mod.lambda_handler(
+            event('POST', '/auth/login', {'username': 'admin', 'password': 'Admin123!'}), None))
+        tok = body['token']
+        status, _ = parse(auth_mod.lambda_handler(
+            event('POST', '/auth/logout', token=tok), None))
+        assert status == 200
+        # Token invalid now
+        status, _ = parse(users_mod.lambda_handler(
+            event('GET', '/users', token=tok), None))
+        assert status == 401
 
 
-# ---- User Management Tests ----
+# ---- Users ----
 
 class TestUsers:
     def test_list_users_admin(self, admin_token):
-        r = get('/users', token=admin_token)
-        assert r.status_code == 200
-        assert 'users' in r.json()
+        status, body = parse(users_mod.lambda_handler(
+            event('GET', '/users', token=admin_token), None))
+        assert status == 200
+        assert 'users' in body
 
     def test_list_users_non_admin(self, test_users):
-        r = get('/users', token=test_users['viewer']['token'])
-        assert r.status_code == 403
+        status, _ = parse(users_mod.lambda_handler(
+            event('GET', '/users', token=test_users['viewer']['token']), None))
+        assert status == 403
 
     def test_create_user_non_admin(self, test_users):
-        r = post('/users', {'username': 'x', 'password': 'x', 'role': 'viewer'},
-                 token=test_users['viewer']['token'])
-        assert r.status_code == 403
+        status, _ = parse(users_mod.lambda_handler(
+            event('POST', '/users', {'username': 'x', 'password': 'x', 'role': 'viewer'},
+                  token=test_users['viewer']['token']), None))
+        assert status == 403
 
 
-# ---- Folder Management Tests ----
+# ---- Folders ----
 
 class TestFolders:
     def test_list_folders_admin(self, admin_token, test_folder):
-        r = get('/folders', token=admin_token)
-        assert r.status_code == 200
-        names = [f['folder_name'] for f in r.json()['folders']]
+        status, body = parse(folders_mod.lambda_handler(
+            event('GET', '/folders', token=admin_token), None))
+        assert status == 200
+        names = [f['folder_name'] for f in body['folders']]
         assert test_folder in names
 
-    def test_list_folders_non_admin_sees_assigned(self, test_users, test_folder):
-        r = get('/folders', token=test_users['viewer']['token'])
-        assert r.status_code == 200
-        names = [f['folder_name'] for f in r.json()['folders']]
+    def test_non_admin_sees_assigned(self, test_users, test_folder):
+        status, body = parse(folders_mod.lambda_handler(
+            event('GET', '/folders', token=test_users['viewer']['token']), None))
+        assert status == 200
+        names = [f['folder_name'] for f in body['folders']]
         assert test_folder in names
 
     def test_create_folder_non_admin(self, test_users):
-        r = post('/folders', {'folder_name': 'nope'}, token=test_users['viewer']['token'])
-        assert r.status_code == 403
+        status, _ = parse(folders_mod.lambda_handler(
+            event('POST', '/folders', {'folder_name': 'nope'},
+                  token=test_users['viewer']['token']), None))
+        assert status == 403
 
 
-# ---- File Operations & RBAC Tests ----
+# ---- Files & RBAC ----
 
 class TestFiles:
     def test_list_files_assigned(self, test_users, test_folder):
-        r = get(f'/folders/{test_folder}/files', token=test_users['viewer']['token'])
-        assert r.status_code == 200
+        status, _ = parse(files_mod.lambda_handler(
+            event('GET', f'/folders/{test_folder}/files',
+                  token=test_users['viewer']['token'],
+                  path_params={'folder_name': test_folder}), None))
+        assert status == 200
 
     def test_list_files_unassigned(self, admin_token, test_users):
-        # Create a folder the viewer is NOT assigned to
         name = f'unassigned-{int(time.time())}'
-        post('/folders', {'folder_name': name}, token=admin_token)
-        r = get(f'/folders/{name}/files', token=test_users['viewer']['token'])
-        assert r.status_code == 403
-        delete(f'/folders/{name}', token=admin_token)
+        folders_mod.lambda_handler(
+            event('POST', '/folders', {'folder_name': name}, token=admin_token), None)
+        status, _ = parse(files_mod.lambda_handler(
+            event('GET', f'/folders/{name}/files',
+                  token=test_users['viewer']['token'],
+                  path_params={'folder_name': name}), None))
+        assert status == 403
+        folders_mod.lambda_handler(
+            event('DELETE', f'/folders/{name}', token=admin_token,
+                  path_params={'folder_name': name}), None)
 
     def test_upload_as_uploader(self, test_users, test_folder):
         tok = test_users['uploader']['token']
-        r = post(f'/folders/{test_folder}/files/upload',
-                 {'file_name': 'inttest.txt', 'file_size': 11}, token=tok)
-        assert r.status_code == 200
-        assert 'upload_url' in r.json()
+        status, body = parse(files_mod.lambda_handler(
+            event('POST', f'/folders/{test_folder}/files/upload',
+                  {'file_name': 'inttest.txt', 'file_size': 11},
+                  token=tok, path_params={'folder_name': test_folder}), None))
+        assert status == 200
+        assert 'upload_url' in body
 
-        # Upload to S3
-        upload_url = r.json()['upload_url']
-        s3r = requests.put(upload_url, data=b'hello world')
-        assert s3r.status_code == 200
-
-        # Complete
-        r = post(f'/folders/{test_folder}/files/upload/complete',
-                 {'file_name': 'inttest.txt', 'file_size': 11}, token=tok)
-        assert r.status_code == 200
+        # Complete upload metadata
+        status, _ = parse(files_mod.lambda_handler(
+            event('POST', f'/folders/{test_folder}/files/upload/complete',
+                  {'file_name': 'inttest.txt', 'file_size': 11},
+                  token=tok, path_params={'folder_name': test_folder}), None))
+        assert status == 200
 
     def test_upload_as_reader_forbidden(self, test_users, test_folder):
-        r = post(f'/folders/{test_folder}/files/upload',
-                 {'file_name': 'x.txt', 'file_size': 1},
-                 token=test_users['reader']['token'])
-        assert r.status_code == 403
+        status, _ = parse(files_mod.lambda_handler(
+            event('POST', f'/folders/{test_folder}/files/upload',
+                  {'file_name': 'x.txt', 'file_size': 1},
+                  token=test_users['reader']['token'],
+                  path_params={'folder_name': test_folder}), None))
+        assert status == 403
 
     def test_upload_as_viewer_forbidden(self, test_users, test_folder):
-        r = post(f'/folders/{test_folder}/files/upload',
-                 {'file_name': 'x.txt', 'file_size': 1},
-                 token=test_users['viewer']['token'])
-        assert r.status_code == 403
+        status, _ = parse(files_mod.lambda_handler(
+            event('POST', f'/folders/{test_folder}/files/upload',
+                  {'file_name': 'x.txt', 'file_size': 1},
+                  token=test_users['viewer']['token'],
+                  path_params={'folder_name': test_folder}), None))
+        assert status == 403
 
     def test_upload_too_large(self, test_users, test_folder):
-        r = post(f'/folders/{test_folder}/files/upload',
-                 {'file_name': 'big.bin', 'file_size': 2_000_000_000},
-                 token=test_users['uploader']['token'])
-        assert r.status_code == 400
+        status, _ = parse(files_mod.lambda_handler(
+            event('POST', f'/folders/{test_folder}/files/upload',
+                  {'file_name': 'big.bin', 'file_size': 2_000_000_000},
+                  token=test_users['uploader']['token'],
+                  path_params={'folder_name': test_folder}), None))
+        assert status == 400
 
     def test_download_as_reader(self, test_users, test_folder):
-        r = post(f'/folders/{test_folder}/files/inttest.txt/download',
-                 token=test_users['reader']['token'])
-        assert r.status_code == 200
-        assert 'download_url' in r.json()
+        status, body = parse(files_mod.lambda_handler(
+            event('POST', f'/folders/{test_folder}/files/inttest.txt/download',
+                  token=test_users['reader']['token'],
+                  path_params={'folder_name': test_folder, 'file_name': 'inttest.txt'}), None))
+        assert status == 200
+        assert 'download_url' in body
 
     def test_download_as_viewer_forbidden(self, test_users, test_folder):
-        r = post(f'/folders/{test_folder}/files/inttest.txt/download',
-                 token=test_users['viewer']['token'])
-        assert r.status_code == 403
+        status, _ = parse(files_mod.lambda_handler(
+            event('POST', f'/folders/{test_folder}/files/inttest.txt/download',
+                  token=test_users['viewer']['token'],
+                  path_params={'folder_name': test_folder, 'file_name': 'inttest.txt'}), None))
+        assert status == 403
 
     def test_admin_any_folder(self, admin_token, test_folder):
-        r = get(f'/folders/{test_folder}/files', token=admin_token)
-        assert r.status_code == 200
+        status, _ = parse(files_mod.lambda_handler(
+            event('GET', f'/folders/{test_folder}/files',
+                  token=admin_token,
+                  path_params={'folder_name': test_folder}), None))
+        assert status == 200

@@ -6,7 +6,9 @@ from boto3.dynamodb.conditions import Key, Attr
 class DataStore:
     def __init__(self, table_name=None):
         self.table_name = table_name or os.environ['TABLE_NAME']
-        self._dynamodb = boto3.resource('dynamodb')
+        endpoint = os.environ.get('DYNAMODB_ENDPOINT')
+        kwargs = {'endpoint_url': endpoint} if endpoint else {}
+        self._dynamodb = boto3.resource('dynamodb', **kwargs)
         self._table = self._dynamodb.Table(self.table_name)
 
     def put_item(self, item):

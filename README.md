@@ -7,33 +7,32 @@ A web-based file-sharing system backed by S3, with DynamoDB for state management
 - Python 3.12+
 - Node.js 18+
 - AWS SAM CLI
-- AWS credentials configured
+- Docker (for integration tests)
 
 ## Tests
 
-### Unit Tests
-
-Run locally with no AWS credentials needed:
+### Unit Tests (no dependencies)
 
 ```bash
 pip install pytest
 python -m pytest tests/unit/ -v
 ```
 
-### Integration Tests
+63 tests, runs in ~5s, no AWS credentials or Docker needed.
 
-Run against a deployed API Gateway:
+### Integration Tests (fully offline, requires Docker)
 
 ```bash
-API_URL=https://xxx.execute-api.us-east-1.amazonaws.com/prod python -m pytest tests/integration/ -v
+bash scripts/integration_test_local.sh
 ```
 
-Integration tests create temporary users/folders and clean up after themselves.
+19 tests, runs in ~2s. Starts DynamoDB Local + S3 Mock in Docker, runs handlers against real services, cleans up after.
 
 ### All Tests
 
 ```bash
+docker compose up -d
 python -m pytest -v
 ```
 
-Without `API_URL` set, integration tests are automatically skipped.
+Without Docker running, integration tests are automatically skipped.

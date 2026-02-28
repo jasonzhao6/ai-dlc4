@@ -1,0 +1,13 @@
+services:
+  dynamodb-local:
+    image: amazon/dynamodb-local:latest
+    ports:
+      - "8033:8000"
+    command: "-jar DynamoDBLocal.jar -sharedDb -inMemory"
+
+  s3-local:
+    image: adobe/s3mock:latest
+    ports:
+      - "9090:9090"
+    environment:
+      - initialBuckets=test-files
