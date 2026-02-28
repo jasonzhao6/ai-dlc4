@@ -2,11 +2,11 @@
 
 ## React Front-End
 
-- [ ] 1. Add `SearchBar` component with text input and clear button
-- [ ] 2. Add sortable column headers to file table (Name, Date Uploaded, Size)
-- [ ] 3. Implement client-side search: filter file list by partial name match (case-insensitive)
-- [ ] 4. Implement client-side sort: toggle ascending/descending per column with visual indicator
-- [ ] 5. Set default sort to alphabetical by name ascending
+- [x] 1. Add `SearchBar` component with text input and clear button
+- [x] 2. Add sortable column headers to file table (Name, Date Uploaded, Size)
+- [x] 3. Implement client-side search: filter file list by partial name match (case-insensitive)
+- [x] 4. Implement client-side sort: toggle ascending/descending per column with visual indicator
+- [x] 5. Set default sort to alphabetical by name ascending
 
 ## Deploy & Verify
 

@@ -2,29 +2,29 @@
 
 ## Backend — Users Lambda
 
-- [ ] 1. Create `users_handler` Lambda with route dispatch (POST, GET, PUT, DELETE)
-- [ ] 2. Implement `POST /users` — create user record + folder assignment records in DDB
-- [ ] 3. Implement `GET /users` — scan users, query their folder assignments
-- [ ] 4. Implement `PUT /users/<username>` — update role, diff and update folder assignments
-- [ ] 5. Implement `DELETE /users/<username>` — delete user record, assignments, and active sessions
-- [ ] 6. Add admin authorization check to all user endpoints (403 if not admin)
-- [ ] 7. Add `users_handler` Lambda + API Gateway routes to SAM template
+- [x] 1. Create `users_handler` Lambda with route dispatch (POST, GET, PUT, DELETE)
+- [x] 2. Implement `POST /users` — create user record + folder assignment records in DDB
+- [x] 3. Implement `GET /users` — scan users, query their folder assignments
+- [x] 4. Implement `PUT /users/<username>` — update role, diff and update folder assignments
+- [x] 5. Implement `DELETE /users/<username>` — delete user record, assignments, and active sessions
+- [x] 6. Add admin authorization check to all user endpoints (403 if not admin)
+- [x] 7. Add `users_handler` Lambda + API Gateway routes to SAM template
 
 ## Backend — Folders Lambda
 
-- [ ] 8. Create `folders_handler` Lambda with route dispatch (POST, GET, PUT, DELETE)
-- [ ] 9. Implement `POST /folders` — create folder record in DDB
-- [ ] 10. Implement `GET /folders` — admin gets all, non-admin gets assigned folders only
-- [ ] 11. Implement `PUT /folders/<folder_name>` — rename folder record, reassign assignments, move S3 objects, update file metadata
-- [ ] 12. Implement `DELETE /folders/<folder_name>` — delete S3 objects, file metadata, assignments, and folder record
-- [ ] 13. Add admin authorization check to create/rename/delete (403 if not admin)
-- [ ] 14. Add `folders_handler` Lambda + API Gateway routes to SAM template
+- [x] 8. Create `folders_handler` Lambda with route dispatch (POST, GET, PUT, DELETE)
+- [x] 9. Implement `POST /folders` — create folder record in DDB
+- [x] 10. Implement `GET /folders` — admin gets all, non-admin gets assigned folders only
+- [x] 11. Implement `PUT /folders/<folder_name>` — rename folder record, reassign assignments, move S3 objects, update file metadata
+- [x] 12. Implement `DELETE /folders/<folder_name>` — delete S3 objects, file metadata, assignments, and folder record
+- [x] 13. Add admin authorization check to create/rename/delete (403 if not admin)
+- [x] 14. Add `folders_handler` Lambda + API Gateway routes to SAM template
 
 ## React Front-End
 
-- [ ] 15. Build admin user management page (list, create, update, delete)
-- [ ] 16. Build admin folder management page (list, create, rename, delete)
-- [ ] 17. Build folder list view for non-admin users (shows assigned folders only)
+- [x] 15. Build admin user management page (list, create, update, delete)
+- [x] 16. Build admin folder management page (list, create, rename, delete)
+- [x] 17. Build folder list view for non-admin users (shows assigned folders only)
 
 ## Integration Tests
 

@@ -1,0 +1,107 @@
+:root {
+  --primary: #0d9488;
+  --primary-dark: #0f766e;
+  --primary-light: #14b8a6;
+  --accent: #f59e0b;
+  --bg-dark: #1e293b;
+  --bg-card: #ffffff;
+  --text-muted: #64748b;
+  --border: #e2e8f0;
+}
+
+body {
+  background-color: #f1f5f9;
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+}
+
+.btn-primary {
+  background-color: var(--primary) !important;
+  border-color: var(--primary) !important;
+}
+.btn-primary:hover {
+  background-color: var(--primary-dark) !important;
+  border-color: var(--primary-dark) !important;
+}
+
+.btn-outline-primary {
+  color: var(--primary) !important;
+  border-color: var(--primary) !important;
+}
+.btn-outline-primary:hover {
+  background-color: var(--primary) !important;
+  color: #fff !important;
+}
+
+.navbar {
+  background-color: var(--bg-dark) !important;
+}
+
+.nav-link.active {
+  color: var(--primary-light) !important;
+}
+
+.card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  transition: box-shadow 0.2s;
+}
+.card:hover {
+  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+}
+
+.login-container {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, var(--bg-dark) 0%, #0f172a 100%);
+}
+
+.login-card {
+  width: 100%;
+  max-width: 420px;
+  border-radius: 16px;
+  padding: 2.5rem;
+  background: var(--bg-card);
+  box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+}
+
+.login-card h2 {
+  color: var(--primary);
+}
+
+.table th {
+  color: var(--text-muted);
+  font-weight: 600;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.sortable-header {
+  cursor: pointer;
+  user-select: none;
+}
+.sortable-header:hover {
+  color: var(--primary) !important;
+}
+
+.badge-role {
+  font-size: 0.75rem;
+  padding: 0.35em 0.65em;
+}
+
+.folder-card {
+  cursor: pointer;
+  border-left: 4px solid var(--primary);
+}
+.folder-card:hover {
+  border-left-color: var(--accent);
+  background-color: #f8fafc;
+}
+
+.page-header {
+  border-bottom: 2px solid var(--primary);
+  padding-bottom: 0.5rem;
+  margin-bottom: 1.5rem;
+}

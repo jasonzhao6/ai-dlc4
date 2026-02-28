@@ -2,32 +2,32 @@
 
 ## Infrastructure
 
-- [ ] 1. Create SAM `template.yaml` with DynamoDB table (PK, SK, GSI1, TTL on `ttl` attribute)
-- [ ] 2. Add S3 file bucket (private, no versioning) to SAM template
-- [ ] 3. Add S3 frontend bucket (public read, static website hosting) to SAM template
-- [ ] 4. Add API Gateway RestApi resource to SAM template with CORS configuration
-- [ ] 5. Create shared Python utility: DynamoDB Decimal-safe JSON encoder
+- [x] 1. Create SAM `template.yaml` with DynamoDB table (PK, SK, GSI1, TTL on `ttl` attribute)
+- [x] 2. Add S3 file bucket (private, no versioning) to SAM template
+- [x] 3. Add S3 frontend bucket (public read, static website hosting) to SAM template
+- [x] 4. Add API Gateway RestApi resource to SAM template with CORS configuration
+- [x] 5. Create shared Python utility: DynamoDB Decimal-safe JSON encoder
 
 ## Auth Lambda
 
-- [ ] 6. Create `auth_handler` Lambda function with route dispatch (login, logout, change-password)
-- [ ] 7. Implement `POST /auth/login` — validate credentials, create session in DDB, return token
-- [ ] 8. Implement `POST /auth/logout` — delete session record from DDB
-- [ ] 9. Implement `POST /auth/change-password` — update password hash, clear `force_password_change` flag
-- [ ] 10. Implement session validation helper — lookup `SESSION#<token>`, check TTL, return user info or 401
+- [x] 6. Create `auth_handler` Lambda function with route dispatch (login, logout, change-password)
+- [x] 7. Implement `POST /auth/login` — validate credentials, create session in DDB, return token
+- [x] 8. Implement `POST /auth/logout` — delete session record from DDB
+- [x] 9. Implement `POST /auth/change-password` — update password hash, clear `force_password_change` flag
+- [x] 10. Implement session validation helper — lookup `SESSION#<token>`, check TTL, return user info or 401
 
 ## Admin Seed
 
-- [ ] 11. Create seed script to insert default admin user into DDB with hardcoded password (hashed) and `force_password_change: true`
-- [ ] 12. Wire seed script into SAM deployment (custom resource or post-deploy script)
+- [x] 11. Create seed script to insert default admin user into DDB with hardcoded password (hashed) and `force_password_change: true`
+- [x] 12. Wire seed script into SAM deployment (custom resource or post-deploy script)
 
 ## React Front-End Shell
 
-- [ ] 13. Initialize React app with login page and dashboard placeholder
-- [ ] 14. Create API client utility with base URL config and `Authorization` header injection
-- [ ] 15. Implement login flow: call `/auth/login`, store token, redirect to dashboard
-- [ ] 16. Implement forced password change flow: detect flag, show change-password form before dashboard
-- [ ] 17. Implement logout: call `/auth/logout`, clear token, redirect to login
+- [x] 13. Initialize React app with login page and dashboard placeholder
+- [x] 14. Create API client utility with base URL config and `Authorization` header injection
+- [x] 15. Implement login flow: call `/auth/login`, store token, redirect to dashboard
+- [x] 16. Implement forced password change flow: detect flag, show change-password form before dashboard
+- [x] 17. Implement logout: call `/auth/logout`, clear token, redirect to login
 
 ## Integration Tests
 

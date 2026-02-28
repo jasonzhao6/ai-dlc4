@@ -2,21 +2,21 @@
 
 ## Backend — Files Lambda
 
-- [ ] 1. Create `files_handler` Lambda with route dispatch
-- [ ] 2. Implement RBAC helper: check session → check folder assignment → check role permission
-- [ ] 3. Implement `GET /folders/<folder_name>/files` — list file metadata from DDB
-- [ ] 4. Implement `POST /folders/<folder_name>/files/upload` — validate role/size, generate pre-signed PUT URL
-- [ ] 5. Implement `POST /folders/<folder_name>/files/upload/complete` — write file metadata to DDB
-- [ ] 6. Implement `POST /folders/<folder_name>/files/<file_name>/download` — validate role, generate pre-signed GET URL
-- [ ] 7. Add `files_handler` Lambda + API Gateway routes to SAM template
+- [x] 1. Create `files_handler` Lambda with route dispatch
+- [x] 2. Implement RBAC helper: check session → check folder assignment → check role permission
+- [x] 3. Implement `GET /folders/<folder_name>/files` — list file metadata from DDB
+- [x] 4. Implement `POST /folders/<folder_name>/files/upload` — validate role/size, generate pre-signed PUT URL
+- [x] 5. Implement `POST /folders/<folder_name>/files/upload/complete` — write file metadata to DDB
+- [x] 6. Implement `POST /folders/<folder_name>/files/<file_name>/download` — validate role, generate pre-signed GET URL
+- [x] 7. Add `files_handler` Lambda + API Gateway routes to SAM template
 
 ## React Front-End
 
-- [ ] 8. Build folder detail page: file list with name, size, upload date columns
-- [ ] 9. Implement upload flow: request pre-signed URL → upload to S3 → call complete endpoint
-- [ ] 10. Implement download flow: request pre-signed URL → trigger browser download
-- [ ] 11. Conditionally show/hide upload button based on user role (admin, uploader only)
-- [ ] 12. Conditionally show/hide download button based on user role (admin, uploader, reader only)
+- [x] 8. Build folder detail page: file list with name, size, upload date columns
+- [x] 9. Implement upload flow: request pre-signed URL → upload to S3 → call complete endpoint
+- [x] 10. Implement download flow: request pre-signed URL → trigger browser download
+- [x] 11. Conditionally show/hide upload button based on user role (admin, uploader only)
+- [x] 12. Conditionally show/hide download button based on user role (admin, uploader, reader only)
 
 ## Integration Tests
 

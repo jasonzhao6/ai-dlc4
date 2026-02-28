@@ -1,0 +1,304 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: S3 File-Sharing System
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Timeout: 30
+    MemorySize: 256
+    Environment:
+      Variables:
+        TABLE_NAME: !Ref FileShareTable
+        FILE_BUCKET: !Ref FileBucket
+
+Parameters:
+  AdminUsername:
+    Type: String
+    Default: admin
+  AdminPassword:
+    Type: String
+    Default: Admin123!
+    NoEcho: true
+
+Resources:
+
+  # ---- DynamoDB Single Table ----
+  FileShareTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${AWS::StackName}-table'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: PK
+          AttributeType: S
+        - AttributeName: SK
+          AttributeType: S
+        - AttributeName: GSI1PK
+          AttributeType: S
+        - AttributeName: GSI1SK
+          AttributeType: S
+      KeySchema:
+        - AttributeName: PK
+          KeyType: HASH
+        - AttributeName: SK
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: GSI1
+          KeySchema:
+            - AttributeName: GSI1PK
+              KeyType: HASH
+            - AttributeName: GSI1SK
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  # ---- S3 File Bucket (private) ----
+  FileBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${AWS::StackName}-files-${AWS::AccountId}'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders: ['*']
+            AllowedMethods: [GET, PUT]
+            AllowedOrigins: ['*']
+            MaxAge: 3600
+
+  # ---- S3 Frontend Bucket (static site) ----
+  FrontendBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${AWS::StackName}-frontend-${AWS::AccountId}'
+      WebsiteConfiguration:
+        IndexDocument: index.html
+        ErrorDocument: index.html
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: false
+        BlockPublicPolicy: false
+        IgnorePublicAcls: false
+        RestrictPublicBuckets: false
+
+  FrontendBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref FrontendBucket
+      PolicyDocument:
+        Statement:
+          - Sid: PublicReadGetObject
+            Effect: Allow
+            Principal: '*'
+            Action: s3:GetObject
+            Resource: !Sub '${FrontendBucket.Arn}/*'
+
+  # ---- Shared Lambda Layer ----
+  SharedLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: !Sub '${AWS::StackName}-shared'
+      ContentUri: backend/shared/
+      CompatibleRuntimes:
+        - python3.12
+    Metadata:
+      BuildMethod: python3.12
+
+  # ---- API Gateway ----
+  ApiGateway:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: prod
+      Cors:
+        AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
+        AllowHeaders: "'Content-Type,Authorization'"
+        AllowOrigin: "'*'"
+
+  # ---- Auth Lambda ----
+  AuthFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: backend/auth/
+      Handler: handler.lambda_handler
+      Layers:
+        - !Ref SharedLayer
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref FileShareTable
+      Events:
+        Login:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /auth/login
+            Method: POST
+        Logout:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /auth/logout
+            Method: POST
+        ChangePassword:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /auth/change-password
+            Method: POST
+
+  # ---- Users Lambda ----
+  UsersFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: backend/users/
+      Handler: handler.lambda_handler
+      Layers:
+        - !Ref SharedLayer
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref FileShareTable
+      Events:
+        CreateUser:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /users
+            Method: POST
+        ListUsers:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /users
+            Method: GET
+        UpdateUser:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /users/{username}
+            Method: PUT
+        DeleteUser:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /users/{username}
+            Method: DELETE
+
+  # ---- Folders Lambda ----
+  FoldersFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: backend/folders/
+      Handler: handler.lambda_handler
+      Layers:
+        - !Ref SharedLayer
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref FileShareTable
+        - S3CrudPolicy:
+            BucketName: !Ref FileBucket
+      Events:
+        CreateFolder:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /folders
+            Method: POST
+        ListFolders:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /folders
+            Method: GET
+        RenameFolder:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /folders/{folder_name}
+            Method: PUT
+        DeleteFolder:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /folders/{folder_name}
+            Method: DELETE
+
+  # ---- Files Lambda ----
+  FilesFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: backend/files/
+      Handler: handler.lambda_handler
+      Layers:
+        - !Ref SharedLayer
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref FileShareTable
+        - S3CrudPolicy:
+            BucketName: !Ref FileBucket
+      Events:
+        ListFiles:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /folders/{folder_name}/files
+            Method: GET
+        UploadRequest:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /folders/{folder_name}/files/upload
+            Method: POST
+        UploadComplete:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /folders/{folder_name}/files/upload/complete
+            Method: POST
+        DownloadRequest:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGateway
+            Path: /folders/{folder_name}/files/{file_name}/download
+            Method: POST
+
+  # ---- Admin Seed (Custom Resource) ----
+  SeedFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: backend/seed/
+      Handler: handler.lambda_handler
+      Timeout: 60
+      Layers:
+        - !Ref SharedLayer
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref FileShareTable
+          ADMIN_USERNAME: !Ref AdminUsername
+          ADMIN_PASSWORD: !Ref AdminPassword
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref FileShareTable
+
+  SeedTrigger:
+    Type: Custom::SeedAdmin
+    Properties:
+      ServiceToken: !GetAtt SeedFunction.Arn
+
+Outputs:
+  ApiUrl:
+    Description: API Gateway URL
+    Value: !Sub 'https://${ApiGateway}.execute-api.${AWS::Region}.amazonaws.com/prod'
+  FrontendUrl:
+    Description: Frontend website URL
+    Value: !GetAtt FrontendBucket.WebsiteURL
+  FileBucketName:
+    Description: File storage bucket
+    Value: !Ref FileBucket
+  FrontendBucketName:
+    Description: Frontend bucket
+    Value: !Ref FrontendBucket
